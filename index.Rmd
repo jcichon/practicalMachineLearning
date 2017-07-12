@@ -1,0 +1,113 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "J. Cichon"
+date: "July 12, 2017"
+output: html_document
+---
+
+##Introduction
+The goal of this study is to predict how well a participant performed a dumbbell bicep curl.  Six participants were asked to perform bicep curls in five different ways; according to specifications (classe A), throwing the elbows to the front (classe B), lifting the dumbell only halfway (classe C), lowering the dumbell only halfway (classe D), and throwing the hips to the front (classe E).  A training set was provided that contained many predictor variables whose data was collected through sensors placed on the belt, arm, and forearm of the test subject.  This training set was divided into a training subset (for creating a model) and a testing subset (for testing the model).  A test (or validation) dataset was provided so that predictions could be made on 20 sample observations using the model.  Two model methods were performed in this study.  The random forest model was chosen because it is one of the most used and accurate methods.  The GBM (boosting with trees) model was also chosen to test the training and testing subset data.  The best model will be chosen to predict classe values for the validation dataset.
+
+## Data
+Download the data.
+
+Training Data URL:
+```{r}
+t1URL <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), header = TRUE, sep = ",", na.strings = c("NA", "", " ", "#DIV/0!"))
+```
+Test Data URL:
+```{r}
+t2URL <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), header = TRUE, sep = ",", na.strings = c("NA", "", " ", "#DIV/0!"))
+```
+
+## Cleaning dataset
+Remove first seven columns since these can't be used as predictors. Remove columns that contain almost all NA values. 
+
+Training data:
+```{r}
+t1URL <- t1URL[, -c(1:7)]
+NoData <- colMeans(is.na(t1URL))
+Train <- t1URL[!NoData]
+```
+Test data:
+```{r}
+t2URL <- t2URL[, -c(1:7)]
+NoData2 <- colMeans(is.na(t2URL))
+Test <- t2URL[!NoData2]
+```
+
+## Data Slicing
+Create data partition to divide original Training set data into a training set and a testing set.  The training set is randomly sampled to create a training subset containing 60% of the samples and a testing subset containg 40% of the samples. This allows us to test different models to find the one that works best on the cross-validated test sets.
+
+```{r, results="hide"}
+library(caret)
+```
+```{r}
+#create training set with 60% of data
+inTrain <- createDataPartition(y=Train$classe, p=0.60, list=FALSE)
+#training subset
+dfTrain <- Train[inTrain,]
+#Testing subset
+dfTest <- Train[-inTrain,]
+#dimensions of datasets
+rbind("Original dataset" = dim(Train), "Training set" = dim(dfTrain), "Testing set" = dim(dfTest))
+```
+
+Some variables may have no variability and are not useful to construct a prediction model. Using the nearZeroVar function all variables were found to have some variability since FALSE is found for all variables in the nzv column.  Therefore, no variables were removed for lack of variability.
+
+```{r}
+nearZeroVar(dfTrain, saveMetrics = TRUE)
+```
+
+##Model
+Random Forest was used to model they way in which the exercise was performed since it is one of the most used and accurate algorithms.
+
+###Building Random Forest Model
+```{r, results="hide"}
+set.seed(124)
+#register multiple cores for R to utilize
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+#Random Forest model
+Control <- trainControl(method = "cv", number = 10, allowParallel = TRUE)
+modfit <- train(classe~ ., data = dfTrain, method = "rf", trControl = Control)
+#force R to return to single threaded processing
+stopCluster(cluster)
+registerDoSEQ()
+```
+###Predict dfTest with Random Forest Model
+A test dataset can be used to predict the out of sample error for the random forest model.  The confusion matrix shows the random forest model to be 98.9% accurate.
+```{r}
+ModPredict <- predict(modfit, dfTest)
+confusionMatrix(ModPredict, dfTest$classe)
+```
+###Building GBM Boosting with Trees Model
+The second model built to assess the accuracy of the data was a GBM model.  The model was constructed like the random forest model with the only difference being the method.
+```{r, results="hide"}
+set.seed(124)
+#register multiple cores for R to utilize
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+#GBM model
+Control <- trainControl(method = "cv", number = 10, allowParallel = TRUE)
+modfit2 <- train(classe~ ., data = dfTrain, method = "gbm", trControl = Control)
+#force R to return to single threaded processing
+stopCluster(cluster)
+registerDoSEQ()
+```
+###Predict dfTest with GBM Model
+A test dataset can be used to predict the out of sample error for the gbm model.  The confusion matrix shows the gbm model to be 96.1% accurate.
+```{r}
+ModPredict2 <- predict(modfit2, dfTest)
+confusionMatrix(ModPredict2, dfTest$classe)
+```
+###Predict Test/validation data with Random Forest Model
+Since the random forest model was slightly more accurate than the GBM model, it was used on the validation set to predict the classe for the 20 sample observations. Since the model has an accuracy of 98.9%, we would expect a high prediction accuracy with the way the test subjects performed the exercises.
+```{r}
+ModValid <- predict(modfit, Test)
+ModValid
+```
